@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Dino Dash</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            text-align: center;
+            margin: 0;
+            overflow: hidden; /* Hide scrollbars */
+            background-color: #f0f0f0; /* Light gray background */
+        }
+
+        #game-container {
+            width: 100%;
+            height: 100%;
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+
+        #game-over {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 48px;
+            color: #ff0000;
+            display: none;
+        }
+
+        #win-message {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 48px;
+            color: #00ff00;
+            display: none;
+        }
+
+        #fullscreen-button {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background-color: #007bff;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        #score-text {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            font-size: 24px;
+            color: #333;
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <h1>Dino Dash</h1>
+        <button id="fullscreen-button">Fullscreen</button>
+        <div id="score-text">Score: 0</div>
+        <script src="https://cdn.jsdelivr.net/npm/phaser@3.55.2/dist/phaser.min.js"></script>
+        <script>
+            var config = {
+                type: Phaser.AUTO,
+                width: 800,
+                height: 600,
+                physics: {
+                    default: 'arcade',
+                    arcade: {
+                        gravity: { y: 300 },
+                        debug: false // Enable for collision debugging
+                    }
+                },
+                scene: {
+                    preload: preload,
+                    create: create,
+                    update: update
+                }
+            };
+
+            var game = new Phaser.Game(config);
+
+            var score = 0;
+            var scoreText;
+
+            function preload() {
+                this.load.image('ground', 'ground.png'); 
+                this.load.image('dino', 'dino.png'); 
+                this.load.image('cactus', 'cactus.png');
+                this.load.image('spike', 'spike.png');
+                this.load.image('bird', 'bird.png'); 
+                this.load.audio('jumpSound', 'jumpSound.mp3');
+                this.load.audio('gameOverSound', 'gameOverSound.mp3'); 
+                this.load.audio('gameMusic', 'gameMusic.mp3');
+            }
+
+            function create() {
+                // Background (optional)
+                this.add.image(400, 300, 'background');
+
+                // Ground
+                this.ground = this.physics.add.staticGroup();
+                this.ground.create(400, 550, 'ground'); 
+                this.ground.setOrigin(0); // Set origin to the bottom left
+
+                // Dino
+                this.dino = this.physics.add.sprite(100, 500, 'dino'); 
+                this.dino.body.allowGravity = false; 
+                this.dino.setOrigin(0.5, 1); // Center the dino on its base
+
+                // Falling Objects Groups
+                this.cacti = this.physics.add.group(); 
+                this.spikes = this.physics.add.group();
+                this.birds = this.physics.add.group();
+                this.blockSpeed = 100;
+                this.lastBlockSpeedIncrease = 0;
+
+                // Timer for creating obstacles
+                this.obstacleTimer = this.time.addEvent({
+                    delay: 1500,
+                    callback: this.createObstacle,
+                    callbackScope: this,
+                    loop: true
+                });
+
+                // Keyboard controls
+                this.cursors = this.input.keyboard.createCursorKeys();
+                this.jumpKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE); 
+
+                // Add collision
+                this.physics.add.collider(this.dino, this.cacti, this.gameOver, null, this);
+                this.physics.add.collider(this.dino, this.spikes, this.gameOver, null, this);
+                this.physics.add.collider(this.dino, this.birds, this.gameOver, null, this);
+                this.physics.add.overlap(this.dino, this.finishLine, this.winGame, null, this); 
+
+                // Music
+                this.gameMusic = this.sound.add('gameMusic');
+                this.gameMusic.play({ loop: true });
+
+                // Fullscreen Button
+                var fullscreenButton = document.getElementById('fullscreen-button');
+                fullscreenButton.addEventListener('click', () => {
+                    if (game.scale.isFullscreen) {
+                        game.scale.stopFullscreen();
+                    } else {
+                        game.scale.startFullscreen();
+                    }
+                });
+
+                // Score Text
+                this.scoreText = this.add.text(10, 10, 'Score: 0', { fontSize: '24px', fill: '#333' });
+
+                // Finish Line (invisible)
+                this.finishLine = this.physics.add.sprite(700, 500, 'block'); 
+                this.finishLine.setVisible(false);
+
+                // Initial obstacle creation
+                this.createObstacle(); 
+            }
+
+            function update() {
+                // Move Dino (using left/right arrow keys)
+                if (this.cursors.left.isDown) {
+                    this.dino.x -= 5;
+                } else if (this.cursors.right.isDown) {
+                    this.dino.x += 5;
+                }
+
+                // Keep Dino within bounds
+                this.dino.x = Phaser.Math.Clamp(this.dino.x, 0, 750);
+
+                // Jump
+                if (this.jumpKey.isDown) {
+                    this.dino.y -= 20; 
+                    this.sound.play('jumpSound'); 
+                }
+
+                // Gradually increase block speed (less frequent)
+                if (this.time.now > this.lastBlockSpeedIncrease + 2000) { 
+                    this.blockSpeed += 5;
+                    this.lastBlockSpeedIncrease = this.time.now;
+                }
+
+                // Update obstacle velocities
+                this.cacti.children.iterate(function(child) {
+                    child.setVelocityY(this.blockSpeed);
+                }, this);
+                this.spikes.children.iterate(function(child) {
+                    child.setVelocityY(this.blockSpeed);
+                }, this);
+                this.birds.children.iterate(function(child) {
+                    child.setVelocityY(this.blockSpeed);
+                }, this);
+
+                // Reset obstacle positions when they go below the screen
+                this.cacti.children.iterate(function(child) {
+                    if (child.y > 600) {
+                        child.y = -20;
+                        child.x = Phaser.Math.Between(50, 750);
+                    }
+                }, this);
+                this.spikes.children.iterate(function(child) {
+                    if (child.y > 600) {
+                        child.y = -20;
+                        child.x = Phaser.Math.Between(50, 750);
+                    }
+                }, this);
+                this.birds.children.iterate(function(child) {
+                    if (child.y > 600) {
+                        child.y = -20;
+                        child.x = Phaser.Math.Between(50, 750);
+                    }
+                }, this);
+            }
+
+            function createObstacle() {
+                // Randomly decide which obstacle to create
+                let obstacleType = Phaser.Math.Between(1, 3);
+
+                if (obstacleType === 1) {
+                    let cactus = this.cacti.create(Phaser.Math.Between(50, 750), -20, 'cactus');
+                    cactus.setVelocityY(this.blockSpeed);
+                    cactus.setVisible(true);
+                } else if (obstacleType === 2) {
+                    let spike = this.spikes.create(Phaser.Math.Between(50, 750), -20, 'spike');
+                    spike.setVelocityY(this.blockSpeed);
+                    spike.setVisible(true);
+                } else {
+                    let bird = this.birds.create(Phaser.Math.Between(50, 750), -20, 'bird');
+                    bird.setVelocityY(this.blockSpeed);
+                    bird.setVisible(true);
+                }
+            }
+
+            function gameOver() {
+                // Stop the game loop
+                this.physics.pause();
+                this.scene.pause();
+                this.sound.play('gameOverSound');
+                this.add.text(400, 300, 'Game Over!', { fontSize: '48px', fill: '#ff0000' }).setOrigin(0.5); 
+                document.getElementById('game-over').style.display = 'block'; 
+            }
+
+            function winGame() {
+                // Stop the game loop
+                this.physics.pause();
+                this.scene.pause();
+                this.add.text(400, 300, 'You Win!', { fontSize: '48px', fill: '#00ff00' }).setOrigin(0.5); 
+                document.getElementById('win-message').style.display = 'block'; 
+            }
+        </script>
+        <div id="game-over">Game Over!</div> 
+        <div id="win-message">You Win!</div> 
+    </div>
+</body>
+</html>
